@@ -154,6 +154,9 @@ html.pm .card>h2{break-after:avoid}
 #mxp .mxx{background:none;border:0;color:#d33;font-size:16px;cursor:pointer}#mxp{margin-top:10px;font-size:12.5px;color:var(--mut)}#mxp div{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}#mxp label{display:flex;flex-direction:column;gap:2px}#mxp input{width:80px}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 </head>
 <body>
@@ -478,7 +481,41 @@ function build(wb){
  
  $('pp').dataset.k='';P='';rf();pick(IND);
 }
-function load(buf,src){build(XLSX.read(buf,{type:'array'}));stt(src)}
+function load(buf,src){build(XLSX.read(buf,{type:'array'}));stt(src);spSave(buf,src)}
+/* ===== Salvamento: aparelho (IndexedDB) + nuvem compartilhada (Firestore) ===== */
+const IDB={open(){return new Promise((ok,no)=>{const r=indexedDB.open('dl_painel',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})},
+ async get(k){const d=await this.open();return new Promise((ok,no)=>{const q=d.transaction('kv').objectStore('kv').get(k);q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})},
+ async set(k,v){const d=await this.open();return new Promise((ok,no)=>{const t=d.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=()=>ok();t.onerror=()=>no(t.error);t.onabort=()=>no(t.error)})},
+ async del(k){const d=await this.open();return new Promise((ok,no)=>{const t=d.transaction('kv','readwrite');t.objectStore('kv').delete(k);t.oncomplete=()=>ok();t.onerror=()=>no(t.error)})}};
+const CL={fs:null,au:null,cu:null,ready:Promise.resolve()};
+(function(){if(!window.firebase)return;try{firebase.initializeApp({apiKey:"AIzaSyCkv6F2adUNJfOj_uBp8Y1LEVdAGlAHM2M",authDomain:"prontidaolocar.firebaseapp.com",projectId:"prontidaolocar",storageBucket:"prontidaolocar.firebasestorage.app",messagingSenderId:"498721436531",appId:"1:498721436531:web:3c47639ad88b1ba69bcb06"})}catch(e){return}
+ CL.fs=firebase.firestore();CL.au=firebase.auth();let un;CL.ready=new Promise(ok=>{un=CL.au.onAuthStateChanged(x=>{CL.cu=x;ok();un&&un()})})})();
+const ab2b64=b=>{let s='';const u=new Uint8Array(b);for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(s)};
+const b642ab=s=>{const t=atob(s),u=new Uint8Array(t.length);for(let i=0;i<t.length;i++)u[i]=t.charCodeAt(i);return u.buffer};
+async function cloudSave(buf,src){if(!CL.fs)return'off';await CL.ready;if(!CL.cu)return'anon';
+ const b=ab2b64(buf),N=700000,n=Math.ceil(b.length/N),bt=CL.fs.batch(),col=CL.fs.collection('painel');
+ for(let i=0;i<n;i++)bt.set(col.doc('p'+i),{d:b.slice(i*N,(i+1)*N)});
+ bt.set(col.doc('meta'),{n,src,t:Date.now(),by:CL.cu.email||''});await bt.commit();return'ok'}
+async function cloudGet(){if(!CL.fs)return null;const col=CL.fs.collection('painel'),m=await col.doc('meta').get();if(!m.exists)return null;
+ const md=m.data(),ps=await Promise.all(Array.from({length:md.n},(_,i)=>col.doc('p'+i).get()));
+ return{buf:b642ab(ps.map(p=>p.data().d).join('')),src:md.src,t:md.t}}
+async function spSave(buf,src){const s=String(src).replace(/\s*[^\w\s]\s*lida agora$/,'');let loc,cl='';
+ try{await IDB.set('planilha',{buf,src:s,t:Date.now()});try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}loc='salvo neste aparelho'}catch(e){loc='não foi possível salvar neste aparelho'}
+ try{const r=await cloudSave(buf,s);cl=r=='ok'?'enviado para todos (nuvem)':r=='anon'?'só neste aparelho: toque em "Entrar para editar" para compartilhar com todos':''}
+ catch(e){cl=e.code=='permission-denied'?'sem permissão para compartilhar (e-mail não autorizado)':'falha ao enviar para a nuvem ('+(e.code||e.message)+')'}
+ stt(src+' · '+[loc,cl].filter(Boolean).join(' · '))}
+async function spRestore(){try{let c=null,l=null;try{c=await cloudGet()}catch(e){}try{l=await IDB.get('planilha')}catch(e){}
+ const s=c||l;if(!s||!s.buf)return;build(XLSX.read(s.buf,{type:'array'}));
+ stt((c?'Planilha compartilhada (nuvem)':'Última planilha salva neste aparelho')+' · '+s.src+' · carregada em '+new Date(s.t).toLocaleString('pt-BR'))}
+ catch(e){stt('Não foi possível restaurar a planilha salva: '+(e.message||e))}}
+(()=>{const b=document.createElement('button');b.className='btn';b.textContent='Limpar cópia do aparelho';
+ b.onclick=async()=>{if(!confirm('Apagar a cópia salva neste aparelho? A versão compartilhada na nuvem não é apagada.'))return;
+  try{await IDB.del('planilha');stt('Cópia do aparelho apagada.')}catch(e){stt('Não foi possível apagar.')}};$('bm').after(b)})();
+CL.ready.then(()=>{if(!CL.au)return;const b=document.createElement('button');b.className='noprint fbpill';b.style.cssText="position:fixed;right:10px;bottom:16px;z-index:9999;padding:9px 14px;border-radius:20px;border:1px solid #888;background:#111;color:#fff;font:600 13px system-ui;opacity:.92";
+ b.textContent=CL.cu?'Sair ('+(CL.cu.email||'')+')':'Entrar para editar';
+ b.onclick=async()=>{try{if(CL.cu)await CL.au.signOut();else await CL.au.signInWithPopup(new firebase.auth.GoogleAuthProvider());location.reload()}catch(e){alert('Não foi possível entrar: '+(e.code||e.message))}};
+ document.body.appendChild(b)});
+if(document.readyState=='complete')spRestore();else addEventListener('load',()=>setTimeout(spRestore,0));
 const rf=()=>{$('ft').innerHTML=F.map((f,i)=>'<tr><td class="kp"><span class="rk">'+(i+1)+'°</span></td><td><span class="fr">'+f[0]+' - '+f[2]+' ('+Math.round(f[2]/D.pront.total*100)+'%)</span><div class="kc">'+f[1]+' · '+f[3]+'</div></td></tr>').join('');$('fnote').textContent='Todo o período ('+D.pront.per+'), base de prontidão com '+D.pront.total+' registros. Só entram registros com frota válida.'};
 async function tok(){const cid=CFG.clientId||localStorage.getItem('spcid')||'';if(!cid)throw Error('Clique em Configurar e informe o ID do aplicativo (Azure AD)');
  const t=localStorage.getItem('sptenant')||CFG.tenant,m=new msal.PublicClientApplication({auth:{clientId:cid,authority:'https://login.microsoftonline.com/'+t,redirectUri:location.origin+location.pathname},cache:{cacheLocation:'sessionStorage'}}),sc=['Sites.Read.All','Files.Read.All'],ac=m.getAllAccounts()[0];
