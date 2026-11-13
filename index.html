@@ -511,10 +511,8 @@ async function spRestore(){try{let c=null,l=null;try{c=await cloudGet()}catch(e)
 (()=>{const b=document.createElement('button');b.className='btn';b.textContent='Limpar cópia do aparelho';
  b.onclick=async()=>{if(!confirm('Apagar a cópia salva neste aparelho? A versão compartilhada na nuvem não é apagada.'))return;
   try{await IDB.del('planilha');stt('Cópia do aparelho apagada.')}catch(e){stt('Não foi possível apagar.')}};$('bm').after(b)})();
-CL.ready.then(()=>{if(!CL.au)return;const b=document.createElement('button');b.className='noprint fbpill';b.style.cssText="position:fixed;right:10px;bottom:16px;z-index:9999;padding:9px 14px;border-radius:20px;border:1px solid #888;background:#111;color:#fff;font:600 13px system-ui;opacity:.92";
- b.textContent=CL.cu?'Sair ('+(CL.cu.email||'')+')':'Entrar para editar';
- b.onclick=async()=>{try{if(CL.cu)await CL.au.signOut();else await CL.au.signInWithPopup(new firebase.auth.GoogleAuthProvider());location.reload()}catch(e){alert('Não foi possível entrar: '+(e.code||e.message))}};
- document.body.appendChild(b)});
+/* Acesso público ao painel: não exibe nem solicita login Google na abertura.
+   O compartilhamento/gravação na nuvem continua condicionado às permissões do Firebase. */
 if(document.readyState=='complete')spRestore();else addEventListener('load',()=>setTimeout(spRestore,0));
 const rf=()=>{$('ft').innerHTML=F.map((f,i)=>'<tr><td class="kp"><span class="rk">'+(i+1)+'°</span></td><td><span class="fr">'+f[0]+' - '+f[2]+' ('+Math.round(f[2]/D.pront.total*100)+'%)</span><div class="kc">'+f[1]+' · '+f[3]+'</div></td></tr>').join('');$('fnote').textContent='Todo o período ('+D.pront.per+'), base de prontidão com '+D.pront.total+' registros. Só entram registros com frota válida.'};
 async function tok(){const cid=CFG.clientId||localStorage.getItem('spcid')||'';if(!cid)throw Error('Clique em Configurar e informe o ID do aplicativo (Azure AD)');
